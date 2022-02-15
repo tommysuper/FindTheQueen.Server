@@ -1,0 +1,128 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager NavigationManager
+@implements IAsyncDisposable
+
+<PageTitle>Find The Queen</PageTitle>
+<h3> Find The Queen</h3>
+
+<div class="form-group mb-2">
+    <label class="form-control">
+        UserName:
+
+    </label>
+    <input class="form-control" @bind="username" disabled="@(IsLoggedIn)" size="50" />
+</div>
+@if (!IsLoggedIn)
+{
+    <div class="form-group">
+        <label class="form-control">
+            Password:
+        </label>
+        <input  class="form-control" type="password" @bind="password" size="50" />
+    </div>
+    <button class="btn btn-primary mt-2" @onclick="Login" hidden="@(IsLoggedIn)">Login</button>
+}
+else
+{
+    <div class="form-group">
+        <label class="form-control">
+            Input:
+        </label>
+        <input class="form-control" @bind="messageInput" type="number" max="4" min="0" size="50" disabled="@(!IsTurn)" />
+    </div>
+    <button class="btn btn-info mt-2" @onclick="Send" disabled="@(!IsTurn)">Send</button>
+
+}
+
+
+
+
+
+<hr>
+
+<ul id="messagesList">
+    @foreach (var message in messages)
+    {
+        <li>@message</li>
+    }
+</ul>
+
+@code {
+    private HubConnection? hubConnection;
+    private List<string> messages = new List<string>();
+    private int messageInput;
+    private string username;
+    private string password;
+    private bool isLoggedIn = false;
+    private bool turn = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/game"))
+            .Build();
+
+        hubConnection.On<string>("MessageReceived", (message) =>
+        {
+            var encodedMsg = $"Game Server: {message}";
+            messages.Add(encodedMsg);
+            StateHasChanged();
+        });
+
+        hubConnection.On<string>("IsLoggedIn", (message) =>
+         {
+             var encodedMsg = $"Game Server: {message}";
+             messages.Add(encodedMsg);
+             isLoggedIn = true;
+             StateHasChanged();
+
+         });
+
+        hubConnection.On<string, bool>("Turn", (message, isTurn) =>
+          {
+              var encodedMsg = $"Game Server: {message}";
+              messages.Add(encodedMsg);
+              turn = isTurn;
+              StateHasChanged();
+          });
+        hubConnection.On<bool>("Dispose", async (dispose) =>
+        {
+            await DisposeAsync();
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    private async Task Send()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("TurnEnd", messageInput);
+        }
+    }
+
+    private async Task Login()
+    {
+        if (hubConnection is not null)
+        {
+            var player = new Player { UserName = username, Password = password };
+            await hubConnection.SendAsync("PlayerLogin", player);
+        }
+    }
+
+    public bool IsLoggedIn => isLoggedIn;
+
+    public bool IsTurn => turn;
+
+    public bool IsConnected =>
+        hubConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
